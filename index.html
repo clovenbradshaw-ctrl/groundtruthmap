@@ -1,1 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nashville Parcel Explorer</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#090d14;--s1:#111827;--s2:#1a2332;--s3:#1f2b3d;--s4:#263040;--b1:#2a3544;--b2:#374151;--t:#e2e8f0;--td:#7a8ba0;--tx:#4a5568;--ac:#38bdf8;--ac2:#818cf8;--w:#fb923c;--d:#f87171;--g:#34d399;--y:#eab308;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--t);height:100vh;overflow:hidden;}
+.app{display:flex;flex-direction:column;height:100vh;}
 
+.hdr{display:flex;align-items:center;gap:10px;padding:6px 14px;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0;z-index:100;}
+.hdr h1{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--ac);letter-spacing:.5px;text-transform:uppercase;white-space:nowrap;}
+.sep{width:1px;height:22px;background:var(--b1);flex-shrink:0;}
+.mode-group{display:flex;}
+.mode-btn{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:5px 14px;border:1px solid var(--b1);cursor:pointer;background:var(--s1);color:var(--td);transition:all .15s;white-space:nowrap;}
+.mode-btn:first-child{border-radius:6px 0 0 6px;}
+.mode-btn:last-child{border-radius:0 6px 6px 0;border-left:0;}
+.mode-btn:hover{border-color:var(--ac);color:var(--ac);}
+.mode-btn.on{border-color:var(--ac);color:var(--bg);background:var(--ac);}
+.hdr-right{display:flex;align-items:center;gap:8px;margin-left:auto;}
+.badge{font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;color:var(--ac);background:rgba(56,189,248,.1);}
+.btn{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;padding:5px 12px;border:1px solid var(--b1);border-radius:5px;cursor:pointer;background:var(--s1);color:var(--td);transition:all .15s;white-space:nowrap;}
+.btn:hover{border-color:var(--ac);color:var(--ac);}
+.btn-sm{font-size:10px;padding:4px 8px;}
+.btn-accent{border-color:var(--ac);color:var(--bg);background:var(--ac);}
+.btn-accent:hover{background:#7dd3fc;}
+.btn-on{border-color:var(--ac);color:var(--ac);background:rgba(56,189,248,.1);}
+.btn-warn{border-color:var(--w);color:var(--w);}
+
+.main{flex:1;display:flex;min-height:0;position:relative;}
+
+/* ═══ EXPLORER ═══ */
+.explorer{flex:1;display:flex;min-height:0;}
+.explorer.hidden{display:none;}
+.exp-side{width:280px;background:var(--s1);border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0;}
+.exp-tabs{display:flex;border-bottom:1px solid var(--b1);}
+.exp-tab{flex:1;padding:7px 4px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;text-align:center;cursor:pointer;border-bottom:2px solid transparent;}
+.exp-tab:hover{color:var(--td);}
+.exp-tab.on{color:var(--ac);border-bottom-color:var(--ac);}
+.exp-pane{display:none;flex:1;overflow-y:auto;padding:10px 12px;}
+.exp-pane.on{display:block;}
+.fg{margin-bottom:10px;}
+.fg-label{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;}
+.fg select,.fg input[type=text],.fg input[type=number]{width:100%;background:var(--s2);border:1px solid var(--b1);color:var(--t);padding:5px 8px;border-radius:4px;font-size:12px;outline:none;}
+.fg select:focus,.fg input:focus{border-color:var(--ac);}
+select optgroup{font-style:normal;color:var(--td);padding:2px 0;}
+select option{color:var(--tx);}
+.range-row{display:flex;gap:4px;align-items:center;}
+.range-row input{flex:1;min-width:0;}
+.range-row span{color:var(--tx);font-size:10px;}
+.lyr{display:flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer;font-size:11px;color:var(--td);transition:color .1s;}
+.lyr:hover{color:var(--t);}
+.lyr.on{color:var(--t);}
+.lyr-sw{width:8px;height:8px;border-radius:2px;flex-shrink:0;}
+.lyr-tog{width:24px;height:14px;border-radius:7px;background:var(--s3);border:1px solid var(--b1);position:relative;flex-shrink:0;margin-left:auto;transition:all .15s;}
+.lyr-tog.on{background:var(--ac);border-color:var(--ac);}
+.lyr-tog::after{content:'';position:absolute;width:8px;height:8px;border-radius:50%;background:#fff;top:2px;left:2px;transition:left .15s;}
+.lyr-tog.on::after{left:12px;}
+
+.exp-map{flex:1;position:relative;}
+#map{width:100%;height:100%;}
+.map-overlay{position:absolute;z-index:1000;pointer-events:none;}
+.map-status{bottom:10px;left:10px;background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:5px 10px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--td);line-height:1.5;}
+.map-status .c{color:var(--ac);font-weight:600;}
+.map-status .w{color:var(--w);font-weight:600;}
+.loading-ind{top:10px;right:10px;background:var(--s1);border:1px solid var(--ac);border-radius:6px;padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ac);display:none;align-items:center;gap:6px;pointer-events:auto;}
+.loading-ind.on{display:flex;}
+.sp{width:12px;height:12px;border:2px solid var(--b1);border-top-color:var(--ac);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.zoom-msg{top:50%;left:50%;transform:translate(-50%,-50%);background:var(--s1);border:1px solid var(--w);border-radius:8px;padding:12px 20px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w);display:none;text-align:center;line-height:1.5;}
+.zoom-msg.on{display:block;}
+.leaflet-popup-content-wrapper{border-radius:8px!important;}
+.pp{font-family:'DM Sans',sans-serif;line-height:1.5;}
+.pp .pt{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:#1e293b;border-bottom:2px solid #38bdf8;padding-bottom:3px;margin-bottom:4px;}
+.pp .pr{font-size:10px;color:#475569;margin-bottom:1px;}
+.pp .pr b{color:#1e293b;}
+.pp .sec{margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;}
+.pp .sec-t{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
+.pp .plu{display:inline-block;color:#0f172a;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;}
+.pp .ptag{display:inline-block;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;margin-left:2px;color:#0f172a;}
+.legend{position:absolute;bottom:10px;right:10px;z-index:1000;background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;max-height:180px;overflow-y:auto;}
+.leg-t{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
+.li{display:flex;align-items:center;gap:4px;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--td);padding:1px 0;}
+.ls{width:7px;height:7px;border-radius:2px;flex-shrink:0;}
+
+/* ═══ QUERY MODE ═══ */
+.querier{flex:1;display:none;flex-direction:column;min-height:0;}
+.querier.on{display:flex;}
+.qbar{display:flex;flex-direction:column;background:var(--s1);border-bottom:1px solid var(--b1);flex-shrink:0;}
+.qbar-top{display:flex;align-items:center;gap:8px;padding:8px 14px;}
+.qbar-top h2{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;flex-shrink:0;}
+.presets{display:flex;gap:6px;flex-wrap:wrap;flex:1;}
+.preset{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;padding:4px 10px;border:1px solid var(--b1);border-radius:12px;cursor:pointer;background:var(--s2);color:var(--td);transition:all .15s;white-space:nowrap;}
+.preset:hover{border-color:var(--ac);color:var(--ac);}
+.preset.on{border-color:var(--ac);color:var(--bg);background:var(--ac);}
+.qfilters{display:flex;gap:8px;padding:8px 14px;flex-wrap:wrap;align-items:flex-end;border-bottom:1px solid var(--b1);}
+.qf{display:flex;flex-direction:column;gap:2px;}
+.qf label{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;color:var(--tx);text-transform:uppercase;letter-spacing:.3px;}
+.qf select,.qf input{background:var(--s2);border:1px solid var(--b1);color:var(--t);padding:5px 8px;border-radius:4px;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;min-width:0;}
+.qf select:focus,.qf input:focus{border-color:var(--ac);}
+.qf-wide input{width:180px;}
+.qf-med select,.qf-med input{width:130px;}
+.qf-sm input{width:90px;}
+.qf-check{flex-direction:row;align-items:center;gap:5px;padding:6px 0;}
+.qf-check label{cursor:pointer;font-size:10px;color:var(--td);}
+.qf-check input{accent-color:var(--ac);}
+.qactions{display:flex;align-items:center;gap:8px;padding:6px 14px;background:var(--s2);border-bottom:1px solid var(--b1);}
+.qstatus{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--td);flex:1;}
+.qstatus .c{color:var(--ac);font-weight:600;}
+.qstatus .w{color:var(--w);font-weight:600;}
+.qstatus .g{color:var(--g);font-weight:600;}
+.progress-bar{height:3px;background:var(--b1);border-radius:2px;overflow:hidden;display:none;}
+.progress-bar.on{display:block;}
+.progress-fill{height:100%;background:var(--ac);transition:width .3s;width:0%;}
+
+.qtable{flex:1;display:flex;min-height:0;}
+.qtable-main{flex:1;display:flex;flex-direction:column;min-width:0;}
+.qt-toolbar{display:flex;align-items:center;gap:8px;padding:6px 14px;border-bottom:1px solid var(--b1);flex-shrink:0;background:var(--s1);}
+.qt-search{background:var(--s2);border:1px solid var(--b1);color:var(--t);padding:5px 10px;border-radius:4px;font-size:12px;font-family:'DM Sans',sans-serif;width:250px;outline:none;}
+.qt-search:focus{border-color:var(--ac);}
+.qt-info{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--td);}
+.spacer{flex:1;}
+
+.qt-scroll{flex:1;overflow:auto;}
+table.dt{width:100%;border-collapse:collapse;font-size:11px;}
+table.dt thead{position:sticky;top:0;z-index:2;}
+table.dt th{background:var(--s2);color:var(--td);font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.3px;padding:6px 10px;text-align:left;border-bottom:1px solid var(--b1);cursor:pointer;white-space:nowrap;user-select:none;}
+table.dt th:hover{color:var(--ac);}
+table.dt th.sa::after{content:' ▲';color:var(--ac);}
+table.dt th.sd::after{content:' ▼';color:var(--ac);}
+table.dt td{padding:5px 10px;border-bottom:1px solid rgba(42,53,68,.4);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+table.dt tbody tr{cursor:pointer;transition:background .08s;}
+table.dt tbody tr:hover td{background:var(--s2);}
+table.dt tbody tr.sel td{background:rgba(56,189,248,.08);}
+td.money{font-family:'JetBrains Mono',monospace;text-align:right;color:var(--g);}
+td.money.zero{color:var(--tx);}
+.tag{display:inline-block;padding:1px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;margin-right:2px;}
+.tag-ab{background:rgba(251,146,60,.15);color:var(--w);}
+.tag-en{background:rgba(129,140,248,.15);color:var(--ac2);}
+.tag-os{background:rgba(248,113,113,.15);color:var(--d);}
+.tag-mu{background:rgba(52,211,153,.15);color:var(--g);}
+
+.qmap{width:0;overflow:hidden;border-left:1px solid var(--b1);transition:width .25s;flex-shrink:0;position:relative;}
+.qmap.open{width:35%;}
+#qmapDiv{width:100%;height:100%;}
+
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:var(--bg);}
+::-webkit-scrollbar-thumb{background:var(--b1);border-radius:3px;}
+::-webkit-scrollbar-thumb:hover{background:var(--b2);}
+</style>
+</head>
+<body>
+<div class="app">
+
+<div class="hdr">
+  <h1>Nashville Parcels</h1>
+  <div class="sep"></div>
+  <div class="mode-group">
+    <button class="mode-btn on" id="modeExplorer" onclick="setMode('explorer')">🗺 Explorer</button>
+    <button class="mode-btn" id="modeQuery" onclick="setMode('query')">🔍 Query</button>
+  </div>
+  <div class="hdr-right">
+    <span class="badge" id="hdrBadge">0 parcels</span>
+    <button class="btn btn-sm" onclick="ECSV()">⬇ CSV</button>
+    <button class="btn btn-sm" onclick="EJSON()">⬇ JSON</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- EXPLORER -->
+  <div class="explorer" id="explorerPane">
+    <div class="exp-side">
+      <div class="exp-tabs">
+        <div class="exp-tab on" data-p="expFilters" onclick="expTab(this)">Filters</div>
+        <div class="exp-tab" data-p="expLayers" onclick="expTab(this)">Layers</div>
+      </div>
+      <div class="exp-pane on" id="expFilters">
+        <div class="fg"><div class="fg-label">Land Use</div>
+          <select id="eLU"><option value="">All</option></select>
+        </div>
+        <div class="fg"><div class="fg-label">Owner Search</div><input type="text" id="eOwner" placeholder="name, LLC..."></div>
+        <div class="fg"><div class="fg-label">Rental Signals</div>
+          <select id="eRent"><option value="">None</option><option value="absentee">Absentee</option><option value="entity">Entity</option><option value="outstate">Out-of-State</option><option value="multi">Multi-Unit</option><option value="any">Any Signal</option></select>
+        </div>
+        <div class="fg"><div class="fg-label">Appraisal</div>
+          <div class="range-row"><input type="number" id="eValMin" placeholder="Min" step="10000"><span>–</span><input type="number" id="eValMax" placeholder="Max" step="10000"></div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;">
+          <button class="btn btn-sm" style="flex:1" onclick="eClear()">Clear</button>
+          <button class="btn btn-sm btn-accent" style="flex:1" onclick="eLoad()">Apply</button>
+        </div>
+        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--b1);">
+          <div class="fg"><div class="fg-label">Base Map</div>
+            <select onchange="changeBase(this.value)"><option value="dark">Dark</option><option value="light">Light</option><option value="sat">Satellite</option><option value="street">Streets</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="exp-pane" id="expLayers">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--tx);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">Toggle overlays</div>
+        <div class="lyr on" data-l="parcels" onclick="togLyr(this)"><div class="lyr-sw" style="background:var(--ac)"></div><span>Parcels</span><div class="lyr-tog on"></div></div>
+        <div style="height:8px"></div>
+        <div class="lyr" data-l="zoning" onclick="togLyr(this)"><div class="lyr-sw" style="background:#a855f7"></div><span>Zoning</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="council" onclick="togLyr(this)"><div class="lyr-sw" style="background:#eab308"></div><span>Council Districts</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="devtracker" onclick="togLyr(this)"><div class="lyr-sw" style="background:#f97316"></div><span>Dev Tracker</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="fema" onclick="togLyr(this)"><div class="lyr-sw" style="background:#3b82f6"></div><span>FEMA Flood</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="zipcodes" onclick="togLyr(this)"><div class="lyr-sw" style="background:#06b6d4"></div><span>Zip Codes</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="taxdistrict" onclick="togLyr(this)"><div class="lyr-sw" style="background:#f43f5e"></div><span>Tax Districts</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="buildings" onclick="togLyr(this)"><div class="lyr-sw" style="background:#64748b"></div><span>Buildings</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="permits" onclick="togLyr(this)"><div class="lyr-sw" style="background:#22c55e"></div><span>Permits</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="parks" onclick="togLyr(this)"><div class="lyr-sw" style="background:#34d399"></div><span>Parks</span><div class="lyr-tog"></div></div>
+        <div class="lyr" data-l="historic" onclick="togLyr(this)"><div class="lyr-sw" style="background:#d97706"></div><span>Historic</span><div class="lyr-tog"></div></div>
+      </div>
+    </div>
+    <div class="exp-map">
+      <div id="map"></div>
+      <div class="map-overlay map-status" id="mapStatus">Zoom in to load parcels</div>
+      <div class="map-overlay loading-ind" id="loading"><div class="sp"></div><span>Loading...</span></div>
+      <div class="map-overlay zoom-msg" id="zoomMsg">⚠ Zoom to 15+ to load parcels</div>
+      <div class="legend" id="legend" style="display:none"><div class="leg-t">Land Use</div><div id="legItems"></div></div>
+    </div>
+  </div>
+
+  <!-- QUERY MODE -->
+  <div class="querier" id="queryPane">
+    <div class="qbar">
+      <div class="qbar-top">
+        <h2>Query Builder</h2>
+        <div class="presets">
+          <div class="preset" onclick="qPreset('rentals',this)">🏠 Likely Rentals</div>
+          <div class="preset" onclick="qPreset('apartments',this)">🏢 Apartments/Multi</div>
+          <div class="preset" onclick="qPreset('llc',this)">📋 LLC/Entity Owned</div>
+          <div class="preset" onclick="qPreset('outstate',this)">✈ Out-of-State Owners</div>
+          <div class="preset" onclick="qPreset('exempt',this)">⛪ Tax Exempt</div>
+          <div class="preset" onclick="qPreset('vacant',this)">🏗 Vacant Land</div>
+          <div class="preset" onclick="qPreset('highval',this)">💰 High Value (&gt;$1M)</div>
+          <div class="preset" onclick="qPreset('clear',this)">✕ Clear</div>
+        </div>
+      </div>
+      <div class="qfilters">
+        <div class="qf qf-med"><label>Council District</label><select id="qCouncil"><option value="">Any</option>
+          <script>document.write([...Array(35)].map((_,i)=>`<option>${i+1}</option>`).join(''))</script>
+        </select></div>
+        <div class="qf qf-med"><label>Land Use</label><select id="qLU"><option value="">Any</option></select></div>
+        <div class="qf qf-wide"><label>Street Name</label><input type="text" id="qStreet" placeholder="e.g. DICKERSON, GALLATIN..."></div>
+        <div class="qf qf-wide"><label>Owner Contains</label><input type="text" id="qOwner" placeholder="name, LLC, TRUST..."></div>
+        <div class="qf qf-sm"><label>Appr Min</label><input type="number" id="qValMin" placeholder="$" step="50000"></div>
+        <div class="qf qf-sm"><label>Appr Max</label><input type="number" id="qValMax" placeholder="$" step="50000"></div>
+        <div class="qf qf-sm"><label>Acres Min</label><input type="number" id="qAcMin" step="0.1"></div>
+        <div class="qf qf-sm"><label>Acres Max</label><input type="number" id="qAcMax" step="0.1"></div>
+        <div class="qf qf-check"><input type="checkbox" id="qAbsentee"><label for="qAbsentee">Absentee</label></div>
+        <div class="qf qf-check"><input type="checkbox" id="qEntity"><label for="qEntity">Entity</label></div>
+        <div class="qf qf-check"><input type="checkbox" id="qOutState"><label for="qOutState">Out-State</label></div>
+        <div class="qf qf-check"><input type="checkbox" id="qMulti"><label for="qMulti">Multi-Unit</label></div>
+        <div class="qf qf-check"><input type="checkbox" id="qExempt"><label for="qExempt">Exempt</label></div>
+      </div>
+      <div class="qactions">
+        <button class="btn btn-sm" onclick="qCount()">Count</button>
+        <button class="btn btn-sm btn-accent" id="qRunBtn" onclick="qRun()">Run Query</button>
+        <button class="btn btn-sm" id="qLoadAll" onclick="qLoadAll()" style="display:none">Load More ↓</button>
+        <button class="btn btn-sm btn-warn" id="qStopBtn" onclick="qStop()" style="display:none">■ Stop</button>
+        <div class="qstatus" id="qStatus">Build a query and hit Run. Presets are starting points — combine with district/street.</div>
+      </div>
+      <div class="progress-bar" id="qProgress"><div class="progress-fill" id="qProgressFill"></div></div>
+    </div>
+
+    <div class="qtable">
+      <div class="qtable-main">
+        <div class="qt-toolbar">
+          <input type="text" class="qt-search" id="qTSearch" placeholder="Filter loaded results...">
+          <span class="qt-info" id="qTInfo">0 rows</span>
+          <div class="spacer"></div>
+          <select id="qColPick" onchange="qTogCol(this)" style="background:var(--s2);border:1px solid var(--b1);color:var(--td);padding:3px 6px;border-radius:4px;font-size:10px;font-family:'JetBrains Mono',monospace;outline:none;"><option value="">+ Columns</option></select>
+          <button class="btn btn-sm" id="qMapToggle" onclick="qTogMap()">🗺 Preview</button>
+        </div>
+        <div class="qt-scroll" id="qTScroll">
+          <table class="dt"><thead id="qTHead"></thead><tbody id="qTBody"></tbody></table>
+        </div>
+      </div>
+      <div class="qmap" id="qMapPanel"><div id="qmapDiv"></div></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', init);
+
+function init() {
+if (typeof L === 'undefined') return;
+
+/* ═══ CONSTANTS ═══ */
+const LUC={'SINGLE FAMILY':'#3b82f6','DUPLEX':'#8b5cf6','TRIPLEX':'#a855f7','QUADPLEX':'#c084fc','APARTMENT':'#f43f5e','CONDO':'#06b6d4','HOTEL/MOTEL':'#f97316','ROOMING HOUSE':'#ef4444','VACANT LAND':'#6b7280','COMMERCIAL':'#eab308','INDUSTRIAL':'#78716c','CHURCH':'#a3e635','OFFICE':'#fbbf24','PARKING LOT':'#9ca3af','GREENBELT':'#22c55e','OTHER':'#64748b'};
+const ENT=/\b(LLC|LP|INC|CORP|TRUST|LTD|PROPERTIES|PARTNERS|HOLDINGS|INVESTMENT|CAPITAL|MANAGEMENT|REAL ESTATE|REALTY|GROUP|FUND|VENTURES|ASSOCIATES|ENTERPRISES|DEVELOPMENT|COMPANY|CO\.)\b/i;
+
+// Include OBJECTID for reliable pagination
+const ALL_F=['OBJECTID','APN','STANPAR','PropAddr','PropHouse','PropStreet','PropSuite','PropCity','PropState','PropZip','Owner','OwnDate','OwnInstr','SaleCode','SaleSrc','ValidSale','SalePrice','OwnAddr1','OwnAddr2','OwnAddr3','OwnCity','OwnState','OwnCountry','OwnZip','LUCode','LUDesc','DUCount','LandAppr','ImprAppr','TotlAppr','LandAssd','ImprAssd','TotlAssd','AssessDate','Acres','DeededAcreage','StatedArea','FinishArea','FirstFloor','Front','Side','IsRegular','Council','TaxDist','Tract','NHID','AssessZone','IsExempt','GovType','LegalDesc','FeatureType','ParType','FloorOrder','UnitID','PropFraction','EqualizedCode'];
+const TCOLS_DEF=['PropAddr','Owner','LUDesc','DUCount','TotlAppr','SalePrice','OwnCity','OwnState','Council','Acres','Signals'];
+const API='https://maps.nashville.gov/arcgis/rest/services/Cadastral/Cadastral_Layers/MapServer/4/query';
+const MZ=15, BATCH=2000;
+
+// Davidson County bounding box — covers all of Nashville-Davidson
+const COUNTY_ENV = '-87.06,35.94,-86.50,36.42';
+
+/* ── Land Use Groups (compound queries) vs Exact values ── */
+const LU_GROUPS = {
+  'all-multifamily': { label: '⊕ All Multi-Family', sql: "(LUDesc LIKE 'APARTMENT%' OR LUDesc IN ('DUPLEX','TRIPLEX','QUADPLEX','MOBILE HOME PARK','DORMITORY/BOARDING HOUSE'))" },
+  'all-apartments':  { label: '⊕ All Apartments',   sql: "LUDesc LIKE 'APARTMENT%'" },
+  'all-residential': { label: '⊕ All Residential',   sql: "(LUDesc IN ('SINGLE FAMILY','DUPLEX','TRIPLEX','QUADPLEX','ZERO LOT LINE','RESIDENTIAL CONDO','MOBILE HOME','RESIDENTIAL COMBO/MISC') OR LUDesc LIKE 'APARTMENT%')" },
+  'all-vacant':      { label: '⊕ All Vacant',        sql: "(LUDesc LIKE 'VACANT%' OR LUDesc='EXEMPT VACANT LAND')" },
+  'all-commercial':  { label: '⊕ All Commercial',    sql: "(LUDesc LIKE 'OFFICE%' OR LUDesc LIKE 'MEDICAL OFFICE%' OR LUDesc IN ('SHOPPING CENTER','STRIP SHOPPING CENTER','ONE STORY GENERAL RETAIL STORE','RESTURANT/CAFETERIA','NIGHTCLUB/LOUNGE','AUTO DEALER','BUSINESS CENTER','SMALL SERVICE SHOP','DEPARTMENT STORE','WHOLESALE OUTLET','ENCLOSED MALL','FAST FOOD','CAR WASH','MINI LUBE','AUTO REPAIR/BODY SHOP','BRANCH FINANCIAL INSTITUTION','CONVENIENCE MARKET WITH GAS','CONVENIENCE MARKET WITHOUT GAS'))" },
+  'all-industrial':  { label: '⊕ All Industrial',    sql: "(LUDesc IN ('HEAVY MANUFACTURING','LIGHT MANUFACTURING','SMALL WAREHOUSE','MINI WAREHOUSE','OPEN STORAGE','PACKING PLANT/FOOD PROCESSING','MINERAL PROCESSING','LUMBER YARD/SAWMILL') OR LUDesc LIKE 'TERMINAL/DISTRIBUTION WAR%')" },
+  'all-institutional':{ label: '⊕ All Institutional', sql: "(LUDesc IN ('CHURCH','SCHOOL OR COLLEGE','HOSPITAL OR CLINIC','NURSING HOME','DAY CARE CENTER','NON-PROFIT CHARITABLE SERVICE','FIRE STATION','LIBRARY','PARSONAGE','POLICE SUB STATION','CLUB/UNION HALL/LODGE') OR LUDesc LIKE 'MUSEUM%' OR LUDesc LIKE '%OTHER THAN OFC%')" }
+};
+
+/* ── Exact LUDesc values by category ── */
+const LU_EXACT = [
+  { cat: 'Residential', items: [
+    'SINGLE FAMILY','DUPLEX','TRIPLEX','QUADPLEX','ZERO LOT LINE',
+    'RESIDENTIAL CONDO','MOBILE HOME','RESIDENTIAL COMBO/MISC'
+  ]},
+  { cat: 'Apartments', items: [
+    'APARTMENT: HIGH RISE (3 STORIES OR GREATER)',
+    'APARTMENT: LOW RISE (BUILT SINCE 1960)',
+    'APARTMENT: WALK UP (BUILT PRIOR TO 1960)'
+  ]},
+  { cat: 'Lodging', items: [
+    'HOTEL/MOTEL','DORMITORY/BOARDING HOUSE','MOBILE HOME PARK','CAMP GROUND'
+  ]},
+  { cat: 'Commercial', items: [
+    'OFFICE BLDG (ONE OR TWO STORIES)','OFFICE BLDG (3 OR MORE STORIES)',
+    'MEDICAL OFFICE (ONE OR TWO STORIES)','MEDICAL OFFICE (THREE STORIES OR GREATER)',
+    'SHOPPING CENTER','STRIP SHOPPING CENTER','ENCLOSED MALL',
+    'ONE STORY GENERAL RETAIL STORE','DEPARTMENT STORE','WHOLESALE OUTLET',
+    'RESTURANT/CAFETERIA','FAST FOOD','NIGHTCLUB/LOUNGE','RECORDING STUDIO',
+    'CONVENIENCE MARKET WITH GAS','CONVENIENCE MARKET WITHOUT GAS',
+    'AUTO DEALER','AUTO REPAIR/BODY SHOP','CAR WASH','MINI LUBE',
+    'BRANCH FINANCIAL INSTITUTION','BUSINESS CENTER','SMALL SERVICE SHOP',
+    'CONDOMINIUM OFC OR OTHER COM CONDO','EVENT CENTER'
+  ]},
+  { cat: 'Industrial', items: [
+    'HEAVY MANUFACTURING','LIGHT MANUFACTURING','SMALL WAREHOUSE','MINI WAREHOUSE',
+    'TERMINAL/DISTRIBUTION WAREHOUSE','TERMINAL/DISTRIBUTION WARHOUSE',
+    'OPEN STORAGE','PACKING PLANT/FOOD PROCESSING','MINERAL PROCESSING','LUMBER YARD/SAWMILL'
+  ]},
+  { cat: 'Institutional', items: [
+    'CHURCH','SCHOOL OR COLLEGE','HOSPITAL OR CLINIC','NURSING HOME',
+    'DAY CARE CENTER','NON-PROFIT CHARITABLE SERVICE','FIRE STATION',
+    'LIBRARY','PARSONAGE','POLICE SUB STATION','CLUB/UNION HALL/LODGE',
+    'MUSEUM OR OTHER CULTURAL ORG.',
+    'METRO OTHER THAN OFC, SCHOOL,HOSP, OR PARK',
+    'STATE OTHER THAN OFC, SCHOOL, HOSP, OR PARK',
+    'FEDERAL OTHER THAN OFC, SCHOOL, HOSP, PARK',
+    'SATELLITE CITY OTHER THAN OFC, SCHOOL, HOSP, PARK'
+  ]},
+  { cat: 'Vacant', items: [
+    'VACANT RESIDENTIAL LAND','VACANT RESIENTIAL LAND','VACANT COMMERCIAL LAND',
+    'VACANT INDUSTRIAL LAND','VACANT RURAL LAND','VACANT ZONED MULTI FAMILY','EXEMPT VACANT LAND'
+  ]},
+  { cat: 'Other', items: [
+    'PARKING LOT','PARKING GARAGE','PARK OR RECREATION','RECREATIONAL',
+    'GOLF COURSE/DRIVING RANGE','GREENHOUSE/NURSERY','FARM BUILDINGS ONLY',
+    'RURAL COMBO','DOCK/MARINA','MORTUARY/CEMETERY','TRANSMITTING TOWERS',
+    'SELF SERVICE STATION (GAS ONLY)','SERVICE STATION FULL SERVICE',
+    'NEIGHBORHOOD SUPERMARKET (FREE STANDING)'
+  ]}
+];
+
+/* ── Column display labels ── */
+const COL_LABELS = {
+  PropAddr:'Address', Owner:'Owner', LUDesc:'Land Use', DUCount:'Units',
+  TotlAppr:'Appraisal', LandAppr:'Land Value', ImprAppr:'Impr Value',
+  SalePrice:'Sale Price', OwnCity:'Owner City', OwnState:'Owner St',
+  OwnZip:'Owner Zip', Council:'District', Acres:'Acres', Signals:'Signals',
+  APN:'APN', STANPAR:'STANPAR', PropSuite:'Suite', TotlAssd:'Assessed',
+  LandAssd:'Land Assd', ImprAssd:'Impr Assd', TaxDist:'Tax Dist',
+  IsExempt:'Exempt', OwnDate:'Acquired', FinishArea:'Sq Ft',
+  OwnAddr1:'Owner Addr', LUCode:'LU Code', DeededAcreage:'Deeded Ac',
+  OwnInstr:'Instrument', PropHouse:'House#', PropStreet:'Street',
+  PropCity:'City', PropState:'State', PropZip:'Zip',
+  StatedArea:'Stated Area', FirstFloor:'1st Floor', Tract:'Tract',
+  NHID:'NHID', AssessZone:'Assess Zone', GovType:'Gov Type',
+  FeatureType:'Feature', ParType:'Parcel Type', FloorOrder:'Floor',
+  UnitID:'Unit ID', OwnAddr2:'Owner Addr2', OwnAddr3:'Owner Addr3',
+  OwnCountry:'Owner Country', SaleCode:'Sale Code', SaleSrc:'Sale Src',
+  ValidSale:'Valid Sale', AssessDate:'Assess Date', Front:'Front',
+  Side:'Side', IsRegular:'Regular', LegalDesc:'Legal Desc',
+  PropFraction:'Fraction', EqualizedCode:'Equalized'
+};
+function colLabel(f){ return COL_LABELS[f] || f; }
+
+/* ── Build WHERE fragment from dropdown value ── */
+function luWhere(val){
+  if(!val) return null;
+  if(val.startsWith('GRP:')){
+    const g = LU_GROUPS[val.slice(4)];
+    return g ? g.sql : null;
+  }
+  // Exact match — the value IS the real LUDesc string
+  return `LUDesc='${val.replace(/'/g,"''")}'`;
+}
+
+/* ── Populate both LU dropdowns from the same source ── */
+function populateLUDropdowns(){
+  const html = [];
+  // Groups section
+  html.push('<optgroup label="── GROUPS (compound queries) ──">');
+  for(const [k,v] of Object.entries(LU_GROUPS)){
+    html.push(`<option value="GRP:${k}">${v.label}</option>`);
+  }
+  html.push('</optgroup>');
+  // Exact values section
+  for(const cat of LU_EXACT){
+    html.push(`<optgroup label="┄ ${cat.cat} (exact) ┄">`);
+    for(const v of cat.items){
+      html.push(`<option value="${v}">${v}</option>`);
+    }
+    html.push('</optgroup>');
+  }
+  const optHTML = html.join('\n');
+  $('eLU').insertAdjacentHTML('beforeend', optHTML);
+  $('qLU').insertAdjacentHTML('beforeend', optHTML);
+}
+
+const BASES={dark:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',light:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',sat:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',street:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'};
+const LYRDEFS={zoning:{url:'https://maps.nashville.gov/arcgis/rest/services/Zoning_Landuse/Zoning/MapServer',layers:'show:0,1',op:.4},council:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:5',op:.35},devtracker:{url:'https://maps.nashville.gov/arcgis/rest/services/Planning/DevTracker_Cases/MapServer',layers:'show:0',op:.5},fema:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:8,9',op:.35},zipcodes:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:0',op:.3},taxdistrict:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/TaxDistricts/MapServer',layers:'show:0,1',op:.3},buildings:{url:'https://maps.nashville.gov/arcgis/rest/services/Planimetric/Buildings/MapServer',layers:'show:0',op:.4},permits:{url:'https://maps.nashville.gov/arcgis/rest/services/Codes/BuildingPermits/MapServer',layers:'show:0',op:.5},parks:{url:'https://maps.nashville.gov/arcgis/rest/services/Parks/Parks/MapServer',layers:'show:0,1,2',op:.35},historic:{url:'https://maps.nashville.gov/arcgis/rest/services/Planning/Planning/MapServer',layers:'show:7,8',op:.35}};
+
+/* ═══ STATE ═══ */
+let mode='explorer', eData=[], qData=[], aLU=new Set();
+let eSortCol=null, eSortDir='asc', qSortCol=null, qSortDir='asc';
+let eAbc=null, qAbc=null, deb=null;
+let qTotalCount=null, qRunning=false, qMaxOID=0;
+let qCols=[...TCOLS_DEF];
+let mapLayers={}, baseTile;
+let qMap=null, qMapLayer=null, qMapOpen=false;
+
+const $=id=>document.getElementById(id);
+function gc(lu){if(!lu)return LUC.OTHER;const u=lu.toUpperCase();for(const[k,v]of Object.entries(LUC))if(u.includes(k))return v;return LUC.OTHER;}
+function f$(v){return(v||v===0)?'$'+Number(v).toLocaleString():'';}
+function fd(e){return e?new Date(e).toLocaleDateString():'';}
+function isAbs(a){if(!a.OwnAddr1||!a.PropAddr)return false;return a.OwnAddr1.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,15)!==a.PropAddr.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,15);}
+function isEnt(a){return a.Owner&&ENT.test(a.Owner);}
+function isOS(a){return a.OwnState&&a.OwnState.trim().toUpperCase()!=='TN';}
+function isMU(a){return a.DUCount&&a.DUCount>1;}
+function mkSigs(a){const s=[];if(isAbs(a))s.push('ABSENTEE');if(isEnt(a))s.push('ENTITY');if(isOS(a))s.push('OUT-STATE');if(isMU(a))s.push('MULTI-UNIT');return s;}
+function sigHTML(arr){return arr.map(s=>{if(s==='ABSENTEE')return'<span class="tag tag-ab">ABSENTEE</span>';if(s==='ENTITY')return'<span class="tag tag-en">ENTITY</span>';if(s==='OUT-STATE')return'<span class="tag tag-os">OUT-STATE</span>';return'<span class="tag tag-mu">'+s+'</span>';}).join('');}
+function clientFilter(a,opts){if(opts.absentee&&!isAbs(a))return false;if(opts.entity&&!isEnt(a))return false;if(opts.outstate&&!isOS(a))return false;if(opts.multi&&!isMU(a))return false;return true;}
+
+/* ═══ MODE SWITCH ═══ */
+window.setMode=function(m){
+  mode=m;
+  $('modeExplorer').classList.toggle('on',m==='explorer');
+  $('modeQuery').classList.toggle('on',m==='query');
+  $('explorerPane').classList.toggle('hidden',m!=='explorer');
+  $('queryPane').classList.toggle('on',m==='query');
+  if(m==='explorer'){setTimeout(()=>map.invalidateSize(),100);$('hdrBadge').textContent=eData.length+' parcels';}
+  else{$('hdrBadge').textContent=qData.length+' parcels';if(!qMap)initQMap();}
+};
+
+/* ═══ EXPLORER MAP ═══ */
+const map=L.map('map',{center:[36.1627,-86.7816],zoom:14,zoomControl:true});
+baseTile=L.tileLayer(BASES.dark,{attribution:'&copy; CARTO',maxZoom:20}).addTo(map);
+const pLayer=L.layerGroup().addTo(map);
+window.changeBase=function(k){map.removeLayer(baseTile);baseTile=L.tileLayer(BASES[k]||BASES.dark,{maxZoom:20}).addTo(map);baseTile.bringToBack();};
+window.expTab=function(el){document.querySelectorAll('.exp-tab').forEach(t=>t.classList.remove('on'));document.querySelectorAll('.exp-pane').forEach(p=>p.classList.remove('on'));el.classList.add('on');$(el.dataset.p).classList.add('on');};
+
+function mkDynLayer(url,layers,op){
+  const D=L.Layer.extend({onAdd(m){this._map=m;this._img=L.DomUtil.create('img','',m.getPane('overlayPane'));this._img.style.cssText=`position:absolute;opacity:${op};pointer-events:none;`;m.on('moveend zoomend',this._upd,this);this._upd();},onRemove(m){m.off('moveend zoomend',this._upd,this);if(this._img.parentNode)this._img.parentNode.removeChild(this._img);},_upd(){const m=this._map,b=m.getBounds(),s=m.getSize();this._img.src=`${url}/export?bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}&bboxSR=4326&imageSR=4326&size=${s.x},${s.y}&format=png32&transparent=true&layers=${layers}&f=image`;const tl=m.latLngToLayerPoint(b.getNorthWest());L.DomUtil.setPosition(this._img,tl);this._img.style.width=s.x+'px';this._img.style.height=s.y+'px';}});
+  return new D();
+}
+window.togLyr=function(el){const n=el.dataset.l,tog=el.querySelector('.lyr-tog'),on=tog.classList.toggle('on');el.classList.toggle('on',on);if(n==='parcels'){on?pLayer.addTo(map):map.removeLayer(pLayer);return;}if(on){const d=LYRDEFS[n];if(d){mapLayers[n]=mkDynLayer(d.url,d.layers,d.op);mapLayers[n].addTo(map);}}else{if(mapLayers[n]){map.removeLayer(mapLayers[n]);delete mapLayers[n];}}};
+
+/* Explorer load (viewport) */
+async function eLoad_(){
+  const z=map.getZoom();
+  if(z<MZ){pLayer.clearLayers();eData=[];aLU.clear();$('legend').style.display='none';$('mapStatus').innerHTML=`<span class="w">Zoom ${MZ}+</span> · z${z}`;$('zoomMsg').classList.add('on');$('hdrBadge').textContent='0';return;}
+  $('zoomMsg').classList.remove('on');
+  if(eAbc)eAbc.abort();eAbc=new AbortController();
+  $('loading').classList.add('on');$('mapStatus').textContent='Loading...';
+  const b=map.getBounds(),env=`${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+  const conds=[];
+  const luW=luWhere($('eLU').value);if(luW)conds.push(luW);
+  if($('eOwner').value.trim())conds.push(`Owner LIKE '%${$('eOwner').value.trim().toUpperCase().replace(/'/g,"''")}%'`);
+  const vmin=$('eValMin').value,vmax=$('eValMax').value;
+  if(vmin)conds.push(`TotlAppr>=${vmin}`);if(vmax)conds.push(`TotlAppr<=${vmax}`);
+  const where=conds.length?conds.join(' AND '):'1=1';
+  const rent=$('eRent').value;
+  const p=new URLSearchParams({where,geometry:env,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:ALL_F.join(','),outSR:'4326',returnGeometry:'true',resultRecordCount:String(BATCH),f:'pjson'});
+  try{
+    const r=await fetch(API+'?'+p,{signal:eAbc.signal});const d=await r.json();
+    if(d.error){$('mapStatus').innerHTML=`<span style="color:var(--d)">API: ${d.error.message}</span>`;$('loading').classList.remove('on');return;}
+    pLayer.clearLayers();eData=[];aLU.clear();
+    (d.features||[]).forEach(f=>{
+      const a=f.attributes,rings=f.geometry?.rings;if(!rings)return;
+      const sg=mkSigs(a);
+      if(rent==='absentee'&&!sg.includes('ABSENTEE'))return;
+      if(rent==='entity'&&!sg.includes('ENTITY'))return;
+      if(rent==='outstate'&&!sg.includes('OUT-STATE'))return;
+      if(rent==='multi'&&!sg.includes('MULTI-UNIT'))return;
+      if(rent==='any'&&sg.length===0)return;
+      const lu=a.LUDesc||'Unknown';aLU.add(lu);
+      eData.push({...a,_sigs:sg,Signals:sg.join(', ')});
+      const ll=rings.map(r=>r.map(c=>[c[1],c[0]]));const col=gc(lu);
+      L.polygon(ll,{color:col,weight:1.2,opacity:.8,fillColor:col,fillOpacity:sg.length?.5:.25}).bindPopup(()=>popup(a,sg,col,lu),{maxWidth:400}).addTo(pLayer);
+    });
+    buildLeg();
+    const tr=(d.features||[]).length>=BATCH;const rc=eData.filter(r=>r._sigs.length).length;
+    $('mapStatus').innerHTML=`<span class="c">${eData.length}</span> parcels`+(tr?' <span class="w">(cap)</span>':'')+(rc?` · <span class="c">${rc}</span> rental signals`:'')+` · z${z}`;
+    if(mode==='explorer')$('hdrBadge').textContent=eData.length+' parcels';
+  }catch(e){if(e.name!=='AbortError')$('mapStatus').innerHTML=`<span style="color:var(--d)">${e.message}</span>`;}
+  $('loading').classList.remove('on');
+}
+window.eLoad=eLoad_;
+window.eClear=function(){$('eLU').value='';$('eOwner').value='';$('eRent').value='';$('eValMin').value='';$('eValMax').value='';eLoad_();};
+function dLoad(){clearTimeout(deb);deb=setTimeout(eLoad_,400);}
+map.on('moveend',dLoad);map.on('zoomend',dLoad);
+
+function buildLeg(){if(!aLU.size){$('legend').style.display='none';return;}$('legend').style.display='block';$('legItems').innerHTML=[...aLU].sort().map(lu=>`<div class="li"><div class="ls" style="background:${gc(lu)}"></div><span>${lu}</span></div>`).join('');}
+
+function popup(a,sg,col,lu){
+  const stags=sg.map(s=>{const cc={ABSENTEE:'#fb923c',ENTITY:'#818cf8','OUT-STATE':'#f87171','MULTI-UNIT':'#34d399'};return`<span class="ptag" style="background:${cc[s]||'#666'}">${s}</span>`;}).join('');
+  return`<div class="pp"><div class="pt">${a.PropAddr||'—'}</div><div class="pr"><b>APN:</b> ${a.APN||''} · <b>STANPAR:</b> ${a.STANPAR||''}</div><div class="sec"><div class="sec-t">Ownership</div><div class="pr"><b>Owner:</b> ${a.Owner||''}</div><div class="pr"><b>Mail:</b> ${[a.OwnAddr1,a.OwnCity,a.OwnState,a.OwnZip].filter(Boolean).join(', ')}</div><div class="pr"><b>Acquired:</b> ${fd(a.OwnDate)} · <b>Instr:</b> ${a.OwnInstr||''}</div></div><div class="sec"><div class="sec-t">Valuation</div><div class="pr"><b>Appr:</b> ${f$(a.TotlAppr)} (Land ${f$(a.LandAppr)} + Impr ${f$(a.ImprAppr)})</div><div class="pr"><b>Assd:</b> ${f$(a.TotlAssd)} · <b>Sale:</b> ${f$(a.SalePrice)}</div></div><div class="sec"><div class="sec-t">Details</div><div class="pr"><b>Units:</b> ${a.DUCount||''} · <b>Acres:</b> ${a.Acres?a.Acres.toFixed(3):''} · <b>SF:</b> ${a.FinishArea?Number(a.FinishArea).toLocaleString():''}</div><div class="pr"><b>Council:</b> ${a.Council||''} · <b>Tax:</b> ${a.TaxDist||''} · <b>Exempt:</b> ${a.IsExempt||'N'}</div></div><div style="margin-top:4px"><span class="plu" style="background:${col}">${lu}</span>${stags}</div></div>`;
+}
+
+/* ═══════════════════════════════════════
+   QUERY MODE
+   Attribute-only queries (no geometry envelope)
+   + OBJECTID-based pagination (no resultOffset)
+   + GRP: prefix for compound group queries
+   ═══════════════════════════════════════ */
+
+function initQMap(){
+  qMap=L.map('qmapDiv',{center:[36.1627,-86.7816],zoom:11,zoomControl:true});
+  L.tileLayer(BASES.dark,{maxZoom:20}).addTo(qMap);
+  qMapLayer=L.layerGroup().addTo(qMap);
+}
+
+window.qTogMap=function(){
+  qMapOpen=!qMapOpen;
+  $('qMapPanel').classList.toggle('open',qMapOpen);
+  $('qMapToggle').classList.toggle('btn-on',qMapOpen);
+  if(qMapOpen){if(!qMap)initQMap();setTimeout(()=>qMap.invalidateSize(),300);}
+};
+
+function qBuildWhere(minOID){
+  const c=[];
+  if(minOID>0) c.push(`OBJECTID>${minOID}`);
+  if($('qCouncil').value) c.push(`Council='${$('qCouncil').value}'`);
+  const luW=luWhere($('qLU').value);if(luW)c.push(luW);
+  if($('qStreet').value.trim()) c.push(`PropStreet LIKE '%${$('qStreet').value.trim().toUpperCase().replace(/'/g,"''")}%'`);
+  if($('qOwner').value.trim()) c.push(`Owner LIKE '%${$('qOwner').value.trim().toUpperCase().replace(/'/g,"''")}%'`);
+  if($('qValMin').value) c.push(`TotlAppr>=${$('qValMin').value}`);
+  if($('qValMax').value) c.push(`TotlAppr<=${$('qValMax').value}`);
+  if($('qAcMin').value) c.push(`Acres>=${$('qAcMin').value}`);
+  if($('qAcMax').value) c.push(`Acres<=${$('qAcMax').value}`);
+  if($('qExempt').checked) c.push(`IsExempt='Y'`);
+  if($('qMulti').checked) c.push(`DUCount>1`);
+  return c.length ? c.join(' AND ') : '1=1';
+}
+
+function qClientOpts(){
+  return{
+    absentee:$('qAbsentee').checked,
+    entity:$('qEntity').checked,
+    outstate:$('qOutState').checked,
+    multi:false // multi is handled server-side via DUCount>1
+  };
+}
+
+/* Presets */
+window.qPreset=function(p,btn){
+  $('qCouncil').value='';$('qLU').value='';$('qStreet').value='';$('qOwner').value='';
+  $('qValMin').value='';$('qValMax').value='';$('qAcMin').value='';$('qAcMax').value='';
+  $('qAbsentee').checked=false;$('qEntity').checked=false;$('qOutState').checked=false;$('qMulti').checked=false;$('qExempt').checked=false;
+  document.querySelectorAll('.preset').forEach(el=>el.classList.remove('on'));
+  if(p==='clear'){$('qStatus').innerHTML='Filters cleared. Build a new query.';return;}
+  if(btn)btn.classList.add('on');
+  switch(p){
+    // "Likely Rentals" = absentee owner, the strongest single signal
+    // User can layer on district/street/land use on top
+    case'rentals':$('qAbsentee').checked=true;break;
+    case'apartments':$('qLU').value='GRP:all-apartments';break;
+    case'llc':$('qEntity').checked=true;break;
+    case'outstate':$('qOutState').checked=true;break;
+    case'exempt':$('qExempt').checked=true;break;
+    case'vacant':$('qLU').value='GRP:all-vacant';break;
+    case'highval':$('qValMin').value='1000000';break;
+  }
+  $('qStatus').innerHTML='Preset loaded. Add district/street if needed, then <b>Run Query</b>.';
+};
+
+/* Count — lightweight check before pulling data */
+window.qCount=async function(){
+  const where=qBuildWhere(0);
+  $('qStatus').innerHTML='Counting...';
+  try{
+    const p=new URLSearchParams({
+      where,
+      returnCountOnly:'true',
+      f:'pjson'
+    });
+    const r=await fetch(API+'?'+p);const d=await r.json();
+    if(d.error){$('qStatus').innerHTML=`<span style="color:var(--d)">Error: ${d.error.message}</span>`;return;}
+    qTotalCount=d.count;
+    const hasClient=$('qAbsentee').checked||$('qEntity').checked||$('qOutState').checked;
+    $('qStatus').innerHTML=`Server matches: <span class="c">${Number(d.count).toLocaleString()}</span>`+(hasClient?' (client filters will reduce this)':'');
+  }catch(e){$('qStatus').innerHTML=`<span style="color:var(--d)">${e.message}</span>`;}
+};
+
+/* Fetch one batch using OBJECTID > N pagination */
+async function qFetchBatch(minOID, copts){
+  const where = qBuildWhere(minOID);
+  const p = new URLSearchParams({
+    where,
+    outFields: ALL_F.join(','),
+    outSR: '4326',
+    returnGeometry: 'true',
+    orderByFields: 'OBJECTID ASC',
+    resultRecordCount: String(BATCH),
+    f: 'pjson'
+  });
+  const r = await fetch(API+'?'+p, {signal:qAbc.signal});
+  const d = await r.json();
+  if(d.error) throw new Error(d.error.message);
+  const feats = d.features || [];
+  let maxOID = minOID;
+
+  feats.forEach(f=>{
+    const a = f.attributes;
+    const oid = a.OBJECTID || 0;
+    if(oid > maxOID) maxOID = oid;
+
+    if(!clientFilter(a, copts)) return;
+    const sg = mkSigs(a);
+    const row = {...a, _sigs:sg, Signals:sg.join(', '), _rings:f.geometry?.rings};
+    qData.push(row);
+
+    // Dot on preview map
+    if(qMapLayer && f.geometry?.rings){
+      const ring = f.geometry.rings[0];
+      if(ring && ring.length){
+        const lat = ring.reduce((s,c)=>s+c[1],0)/ring.length;
+        const lng = ring.reduce((s,c)=>s+c[0],0)/ring.length;
+        L.circleMarker([lat,lng],{radius:3,color:gc(a.LUDesc),fillColor:gc(a.LUDesc),fillOpacity:.7,weight:0}).addTo(qMapLayer);
+      }
+    }
+  });
+
+  return {count: feats.length, maxOID};
+}
+
+/* Run query — first batch */
+window.qRun=async function(){
+  qData=[];qMaxOID=0;qTotalCount=null;
+  if(qMapLayer)qMapLayer.clearLayers();
+  const copts=qClientOpts();
+  qRunning=true;
+  $('qRunBtn').style.display='none';$('qStopBtn').style.display='';$('qLoadAll').style.display='none';
+  $('qProgress').classList.add('on');$('qProgressFill').style.width='0%';
+  $('qStatus').innerHTML='Querying...';
+  if(qAbc)qAbc.abort();qAbc=new AbortController();
+
+  try{
+    // Count first
+    const countWhere = qBuildWhere(0);
+    const cp=new URLSearchParams({
+      where:countWhere,
+      returnCountOnly:'true', f:'pjson'
+    });
+    const cr=await fetch(API+'?'+cp,{signal:qAbc.signal});
+    const cd=await cr.json();
+    if(cd.error) throw new Error(cd.error.message);
+    qTotalCount=cd.count||0;
+    $('qStatus').innerHTML=`Found <span class="c">${qTotalCount.toLocaleString()}</span> server-side. Fetching first batch...`;
+
+    if(qTotalCount===0){
+      qRunning=false;$('qStopBtn').style.display='none';$('qRunBtn').style.display='';
+      $('qProgress').classList.remove('on');
+      $('qStatus').innerHTML='<span class="w">0 results.</span> Adjust filters and try again.';
+      qRenderTable();
+      return;
+    }
+
+    // First batch
+    const res = await qFetchBatch(0, copts);
+    qMaxOID = res.maxOID;
+    qRenderTable();
+
+    const pct = Math.min(100, Math.round(qMaxOID / (qTotalCount+1) * 100));
+    $('qProgressFill').style.width=pct+'%';
+
+    qRunning=false;
+    $('qStopBtn').style.display='none';$('qRunBtn').style.display='';
+
+    if(res.count >= BATCH){
+      $('qLoadAll').style.display='';
+      $('qStatus').innerHTML=`<span class="c">${qData.length}</span> loaded of ~${qTotalCount.toLocaleString()} server matches. Hit <b>Load More</b> to paginate through the rest.`;
+    } else {
+      $('qStatus').innerHTML=`<span class="g">✓ ${qData.length}</span> parcels loaded (complete)`;
+    }
+    $('qProgress').classList.remove('on');
+    if(mode==='query')$('hdrBadge').textContent=qData.length+' parcels';
+
+  }catch(e){
+    qRunning=false;$('qStopBtn').style.display='none';$('qRunBtn').style.display='';
+    $('qProgress').classList.remove('on');
+    if(e.name!=='AbortError'){
+      $('qStatus').innerHTML=`<span style="color:var(--d)">Error: ${e.message}</span>`;
+      console.error('Query error:', e);
+    }
+  }
+};
+
+/* Load All — keep paginating */
+window.qLoadAll=async function(){
+  const copts=qClientOpts();
+  qRunning=true;
+  $('qLoadAll').style.display='none';$('qStopBtn').style.display='';$('qRunBtn').style.display='none';
+  $('qProgress').classList.add('on');
+  if(qAbc)qAbc.abort();qAbc=new AbortController();
+
+  try{
+    while(qRunning){
+      const res = await qFetchBatch(qMaxOID, copts);
+      qMaxOID = res.maxOID;
+      qRenderTable();
+
+      if(mode==='query')$('hdrBadge').textContent=qData.length+' parcels';
+      const pct = qTotalCount ? Math.min(100, Math.round(qData.length / qTotalCount * 100)) : 50;
+      $('qProgressFill').style.width=pct+'%';
+      $('qStatus').innerHTML=`Loading... <span class="c">${qData.length}</span> rows`;
+
+      if(res.count < BATCH) break; // done
+    }
+    qRunning=false;$('qStopBtn').style.display='none';$('qRunBtn').style.display='';
+    $('qProgress').classList.remove('on');
+    $('qStatus').innerHTML=`<span class="g">✓ ${qData.length}</span> parcels loaded (complete)`;
+
+    // Fit preview map
+    if(qMap&&qMapLayer&&qMapOpen){
+      const b=L.latLngBounds();
+      qMapLayer.eachLayer(l=>{if(l.getLatLng)b.extend(l.getLatLng());});
+      if(b.isValid())qMap.fitBounds(b,{padding:[20,20]});
+    }
+  }catch(e){
+    qRunning=false;$('qStopBtn').style.display='none';$('qRunBtn').style.display='';
+    $('qProgress').classList.remove('on');
+    if(e.name!=='AbortError')$('qStatus').innerHTML=`Stopped at <span class="c">${qData.length}</span> rows`;
+  }
+};
+
+window.qStop=function(){qRunning=false;if(qAbc)qAbc.abort();};
+
+/* ═══ QUERY TABLE ═══ */
+function initQColPicker(){
+  const sel=$('qColPick');
+  sel.innerHTML='<option value="">+ Columns</option>';
+  ALL_F.concat(['Signals']).forEach(f=>{
+    if(f==='OBJECTID')return; // hide internal
+    const o=document.createElement('option');
+    o.value=f;o.textContent=(qCols.includes(f)?'☑ ':'☐ ')+colLabel(f);
+    sel.appendChild(o);
+  });
+}
+window.qTogCol=function(sel){
+  const c=sel.value;if(!c)return;
+  const i=qCols.indexOf(c);if(i>=0)qCols.splice(i,1);else qCols.push(c);
+  sel.value='';initQColPicker();qRenderTable();
+};
+
+function qRenderTable(){
+  const q=($('qTSearch').value||'').toUpperCase();
+  let rows=qData;
+  if(q)rows=rows.filter(r=>qCols.some(c=>String(r[c]||'').toUpperCase().includes(q)));
+  if(qSortCol)rows=[...rows].sort((a,b)=>{let va=a[qSortCol]??'',vb=b[qSortCol]??'';if(typeof va==='number'&&typeof vb==='number')return qSortDir==='asc'?va-vb:vb-va;return qSortDir==='asc'?String(va).localeCompare(String(vb)):String(vb).localeCompare(String(va));});
+
+  $('qTInfo').textContent=rows.length+' rows'+(rows.length!==qData.length?` (of ${qData.length})`:'');
+
+  $('qTHead').innerHTML='<tr>'+qCols.map(c=>{let cls='';if(qSortCol===c)cls=qSortDir==='asc'?'sa':'sd';return`<th class="${cls}" data-c="${c}">${colLabel(c)}</th>`;}).join('')+'</tr>';
+
+  const frag=document.createDocumentFragment();
+  const lim=Math.min(rows.length,10000);
+  for(let i=0;i<lim;i++){
+    const r=rows[i],tr=document.createElement('tr');
+    tr.innerHTML=qCols.map(c=>{
+      let v=r[c];
+      const isMoney=['TotlAppr','LandAppr','ImprAppr','TotlAssd','LandAssd','ImprAssd','SalePrice'].includes(c);
+      if(isMoney){const cls=(!v||v===0)?'money zero':'money';return`<td class="${cls}">${f$(v)}</td>`;}
+      if(c==='Signals')return`<td>${sigHTML(r._sigs||[])}</td>`;
+      if((c==='OwnDate'||c==='AssessDate')&&v)return`<td>${fd(v)}</td>`;
+      if(c==='Acres'&&v)return`<td>${Number(v).toFixed(3)}</td>`;
+      return`<td>${v??''}</td>`;
+    }).join('');
+    tr.addEventListener('click',()=>{
+      $('qTBody').querySelectorAll('tr.sel').forEach(t=>t.classList.remove('sel'));
+      tr.classList.add('sel');
+      if(qMap&&r._rings&&qMapOpen){
+        const ring=r._rings[0];if(ring){
+          const lat=ring.reduce((s,c)=>s+c[1],0)/ring.length;
+          const lng=ring.reduce((s,c)=>s+c[0],0)/ring.length;
+          qMap.setView([lat,lng],17);
+        }
+      }
+    });
+    frag.appendChild(tr);
+  }
+  $('qTBody').innerHTML='';$('qTBody').appendChild(frag);
+
+  $('qTHead').querySelectorAll('th').forEach(th=>th.onclick=()=>{
+    const c=th.dataset.c;
+    if(qSortCol===c)qSortDir=qSortDir==='asc'?'desc':'asc';else{qSortCol=c;qSortDir='asc';}
+    qRenderTable();
+  });
+}
+$('qTSearch').addEventListener('input',()=>qRenderTable());
+
+/* ═══ EXPORTS ═══ */
+function dl(n,c,t){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([c],{type:t}));a.download=n;document.body.appendChild(a);a.click();document.body.removeChild(a);}
+function activeData(){return mode==='query'?qData:eData;}
+window.ECSV=function(){
+  const d=activeData();if(!d.length)return;
+  const cols=ALL_F.filter(f=>f!=='OBJECTID').concat(['RentalSignals']);
+  const hdr=cols.join(',');
+  const rows=d.map(r=>cols.map(c=>{let v=c==='RentalSignals'?(r._sigs||[]).join(';'):(r[c]??'');v=String(v).replace(/"/g,'""');if(/[,"\n]/.test(String(v)))v='"'+v+'"';return v;}).join(','));
+  dl('nashville_parcels.csv',[hdr,...rows].join('\n'),'text/csv');
+};
+window.EJSON=function(){
+  const d=activeData();if(!d.length)return;
+  const out=d.map(r=>{const o={};ALL_F.forEach(f=>{if(f!=='OBJECTID'&&r[f]!=null)o[f]=r[f];});o.RentalSignals=r._sigs||[];return o;});
+  dl('nashville_parcels.json',JSON.stringify(out,null,2),'application/json');
+};
+
+/* ═══ INIT ═══ */
+populateLUDropdowns();
+initQColPicker();
+eLoad_();
+}
+</script>
+</body>
+</html>
