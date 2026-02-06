@@ -83,6 +83,22 @@ select option{color:var(--tx);}
 .pp .sec-t{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px;}
 .pp .plu{display:inline-block;color:#0f172a;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;font-family:'JetBrains Mono',monospace;}
 .pp .ptag{display:inline-block;font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;margin-left:2px;color:#0f172a;}
+/* Likely Rentals toggle */
+.rental-tog-row{display:flex;align-items:center;gap:8px;padding:8px 0;}
+.rental-tog-label{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--td);cursor:pointer;}
+.rental-tog-row .lyr-tog{margin-left:auto;}
+.rental-tog-row.on .rental-tog-label{color:var(--t);}
+.tip-wrap{position:relative;display:inline-flex;align-items:center;}
+.tip-icon{width:14px;height:14px;border-radius:50%;background:var(--s3);border:1px solid var(--b2);color:var(--td);font-size:9px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;cursor:help;flex-shrink:0;font-family:'JetBrains Mono',monospace;line-height:1;}
+.tip-icon:hover{border-color:var(--ac);color:var(--ac);}
+.tip-content{display:none;position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);width:260px;background:var(--s2);border:1px solid var(--b2);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--td);line-height:1.5;z-index:2000;box-shadow:0 4px 12px rgba(0,0,0,.4);}
+.tip-content::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:var(--b2);}
+.tip-wrap:hover .tip-content{display:block;}
+.tip-content .tip-title{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--ac);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;}
+.tip-content .tip-sig{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px;}
+.tip-content .tip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.tip-content .tip-note{margin-top:6px;font-size:9px;color:var(--tx);font-style:italic;}
+
 .legend{position:absolute;bottom:10px;right:10px;z-index:1000;background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;max-height:180px;overflow-y:auto;}
 .leg-t{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
 .li{display:flex;align-items:center;gap:4px;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--td);padding:1px 0;}
@@ -185,8 +201,22 @@ td.money.zero{color:var(--tx);}
           <select id="eLU"><option value="">All</option></select>
         </div>
         <div class="fg"><div class="fg-label">Owner Search</div><input type="text" id="eOwner" placeholder="name, LLC..."></div>
-        <div class="fg"><div class="fg-label">Rental Signals</div>
-          <select id="eRent"><option value="">None</option><option value="absentee">Absentee</option><option value="entity">Entity</option><option value="outstate">Out-of-State</option><option value="multi">Multi-Unit</option><option value="any">Any Signal</option></select>
+        <div class="fg">
+          <div class="rental-tog-row" id="eRentTogRow" onclick="togRentals()">
+            <span class="rental-tog-label">Likely Rentals</span>
+            <div class="tip-wrap" onclick="event.stopPropagation()">
+              <div class="tip-icon">?</div>
+              <div class="tip-content">
+                <div class="tip-title">How we identify likely rentals</div>
+                <div class="tip-sig"><div class="tip-dot" style="background:#fb923c"></div><b style="color:var(--w)">Absentee</b> — Owner address differs from property address</div>
+                <div class="tip-sig"><div class="tip-dot" style="background:#818cf8"></div><b style="color:var(--ac2)">Entity</b> — Owner is an LLC, Corp, Trust, etc.</div>
+                <div class="tip-sig"><div class="tip-dot" style="background:#f87171"></div><b style="color:var(--d)">Out-of-State</b> — Owner mailing address is outside TN</div>
+                <div class="tip-sig"><div class="tip-dot" style="background:#34d399"></div><b style="color:var(--g)">Multi-Unit</b> — Property has more than one dwelling unit</div>
+                <div class="tip-note">A parcel matching any of these signals is flagged as a likely rental. More signals = higher confidence.</div>
+              </div>
+            </div>
+            <div class="lyr-tog" id="eRentTog"></div>
+          </div>
         </div>
         <div class="fg"><div class="fg-label">Appraisal</div>
           <div class="range-row"><input type="number" id="eValMin" placeholder="Min" step="10000"><span>–</span><input type="number" id="eValMax" placeholder="Max" step="10000"></div>
@@ -431,7 +461,7 @@ const BASES={dark:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png
 const LYRDEFS={zoning:{url:'https://maps.nashville.gov/arcgis/rest/services/Zoning_Landuse/Zoning/MapServer',layers:'show:0,1',op:.4},council:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:5',op:.35},devtracker:{url:'https://maps.nashville.gov/arcgis/rest/services/Planning/DevTracker_Cases/MapServer',layers:'show:0',op:.5},fema:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:8,9',op:.35},zipcodes:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/Boundaries/MapServer',layers:'show:0',op:.3},taxdistrict:{url:'https://maps.nashville.gov/arcgis/rest/services/Boundaries/TaxDistricts/MapServer',layers:'show:0,1',op:.3},buildings:{url:'https://maps.nashville.gov/arcgis/rest/services/Planimetric/Buildings/MapServer',layers:'show:0',op:.4},permits:{url:'https://maps.nashville.gov/arcgis/rest/services/Codes/BuildingPermits/MapServer',layers:'show:0',op:.5},parks:{url:'https://maps.nashville.gov/arcgis/rest/services/Parks/Parks/MapServer',layers:'show:0,1,2',op:.35},historic:{url:'https://maps.nashville.gov/arcgis/rest/services/Planning/Planning/MapServer',layers:'show:7,8',op:.35}};
 
 /* ═══ STATE ═══ */
-let mode='explorer', eData=[], qData=[], aLU=new Set();
+let mode='explorer', eData=[], qData=[], aLU=new Set(), eRentalsOn=false;
 let eSortCol=null, eSortDir='asc', qSortCol=null, qSortDir='asc';
 let eAbc=null, qAbc=null, deb=null;
 let qTotalCount=null, qRunning=false, qMaxOID=0;
@@ -468,6 +498,7 @@ baseTile=L.tileLayer(BASES.dark,{attribution:'&copy; CARTO',maxZoom:20}).addTo(m
 const pLayer=L.layerGroup().addTo(map);
 window.changeBase=function(k){map.removeLayer(baseTile);baseTile=L.tileLayer(BASES[k]||BASES.dark,{maxZoom:20}).addTo(map);baseTile.bringToBack();};
 window.expTab=function(el){document.querySelectorAll('.exp-tab').forEach(t=>t.classList.remove('on'));document.querySelectorAll('.exp-pane').forEach(p=>p.classList.remove('on'));el.classList.add('on');$(el.dataset.p).classList.add('on');};
+window.togRentals=function(){eRentalsOn=!eRentalsOn;$('eRentTog').classList.toggle('on',eRentalsOn);$('eRentTogRow').classList.toggle('on',eRentalsOn);eLoad_();};
 
 function mkDynLayer(url,layers,op){
   const D=L.Layer.extend({onAdd(m){this._map=m;this._img=L.DomUtil.create('img','',m.getPane('overlayPane'));this._img.style.cssText=`position:absolute;opacity:${op};pointer-events:none;`;m.on('moveend zoomend',this._upd,this);this._upd();},onRemove(m){m.off('moveend zoomend',this._upd,this);if(this._img.parentNode)this._img.parentNode.removeChild(this._img);},_upd(){const m=this._map,b=m.getBounds(),s=m.getSize();this._img.src=`${url}/export?bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}&bboxSR=4326&imageSR=4326&size=${s.x},${s.y}&format=png32&transparent=true&layers=${layers}&f=image`;const tl=m.latLngToLayerPoint(b.getNorthWest());L.DomUtil.setPosition(this._img,tl);this._img.style.width=s.x+'px';this._img.style.height=s.y+'px';}});
@@ -489,7 +520,6 @@ async function eLoad_(){
   const vmin=$('eValMin').value,vmax=$('eValMax').value;
   if(vmin)conds.push(`TotlAppr>=${vmin}`);if(vmax)conds.push(`TotlAppr<=${vmax}`);
   const where=conds.length?conds.join(' AND '):'1=1';
-  const rent=$('eRent').value;
   const p=new URLSearchParams({where,geometry:env,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:ALL_F.join(','),outSR:'4326',returnGeometry:'true',resultRecordCount:String(BATCH),f:'pjson'});
   try{
     const r=await fetch(API+'?'+p,{signal:eAbc.signal});const d=await r.json();
@@ -498,11 +528,7 @@ async function eLoad_(){
     (d.features||[]).forEach(f=>{
       const a=f.attributes,rings=f.geometry?.rings;if(!rings)return;
       const sg=mkSigs(a);
-      if(rent==='absentee'&&!sg.includes('ABSENTEE'))return;
-      if(rent==='entity'&&!sg.includes('ENTITY'))return;
-      if(rent==='outstate'&&!sg.includes('OUT-STATE'))return;
-      if(rent==='multi'&&!sg.includes('MULTI-UNIT'))return;
-      if(rent==='any'&&sg.length===0)return;
+      if(eRentalsOn&&sg.length===0)return;
       const lu=a.LUDesc||'Unknown';aLU.add(lu);
       eData.push({...a,_sigs:sg,Signals:sg.join(', ')});
       const ll=rings.map(r=>r.map(c=>[c[1],c[0]]));const col=gc(lu);
@@ -516,7 +542,7 @@ async function eLoad_(){
   $('loading').classList.remove('on');
 }
 window.eLoad=eLoad_;
-window.eClear=function(){$('eLU').value='';$('eOwner').value='';$('eRent').value='';$('eValMin').value='';$('eValMax').value='';eLoad_();};
+window.eClear=function(){$('eLU').value='';$('eOwner').value='';eRentalsOn=false;$('eRentTog').classList.remove('on');$('eRentTogRow').classList.remove('on');$('eValMin').value='';$('eValMax').value='';eLoad_();};
 function dLoad(){clearTimeout(deb);deb=setTimeout(eLoad_,400);}
 map.on('moveend',dLoad);map.on('zoomend',dLoad);
 
