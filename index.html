@@ -359,6 +359,14 @@ const TCOLS_DEF=['PropAddr','Owner','LUDesc','DUCount','TotlAppr','SalePrice','O
 const API='https://maps.nashville.gov/arcgis/rest/services/Cadastral/Cadastral_Layers/MapServer/4/query';
 const MZ=15, BATCH=2000;
 
+/* Safely parse JSON from ArcGIS responses that may contain unescaped control characters */
+async function safeJSON(resp){
+  const t=await resp.text();
+  // Strip control chars (0x00-0x1F) except inside JSON structure chars, preserving escaped sequences
+  const cleaned=t.replace(/[\x00-\x1f]+/g,' ');
+  return JSON.parse(cleaned);
+}
+
 // Davidson County bounding box — covers all of Nashville-Davidson
 const COUNTY_ENV = '-87.06,35.94,-86.50,36.42';
 
@@ -604,7 +612,7 @@ async function hmLoadCity(){
     // First get count of all properties
     const cp=new URLSearchParams({where:'1=1',returnCountOnly:'true',f:'pjson'});
     const cr=await fetch(API+'?'+cp,{signal:hmAbc.signal});
-    const cd=await cr.json();
+    const cd=await safeJSON(cr);
     const totalProps=cd.count||200000;
 
     while(true){
@@ -620,7 +628,7 @@ async function hmLoadCity(){
         f:'pjson'
       });
       const r=await fetch(API+'?'+p,{signal:hmAbc.signal});
-      const d=await r.json();
+      const d=await safeJSON(r);
       if(d.error)throw new Error(d.error.message);
       const feats=d.features||[];
       if(!feats.length)break;
@@ -699,7 +707,7 @@ async function eLoad_(){
   const where=conds.length?conds.join(' AND '):'1=1';
   const p=new URLSearchParams({where,geometry:env,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:ALL_F.join(','),outSR:'4326',returnGeometry:'true',resultRecordCount:String(BATCH),f:'pjson'});
   try{
-    const r=await fetch(API+'?'+p,{signal:eAbc.signal});const d=await r.json();
+    const r=await fetch(API+'?'+p,{signal:eAbc.signal});const d=await safeJSON(r);
     if(d.error){$('mapStatus').innerHTML=`<span style="color:var(--d)">API: ${d.error.message}</span>`;$('loading').classList.remove('on');return;}
     pLayer.clearLayers();eData=[];aLU.clear();
     (d.features||[]).forEach(f=>{
@@ -815,7 +823,7 @@ window.qCount=async function(){
       returnCountOnly:'true',
       f:'pjson'
     });
-    const r=await fetch(API+'?'+p);const d=await r.json();
+    const r=await fetch(API+'?'+p);const d=await safeJSON(r);
     if(d.error){$('qStatus').innerHTML=`<span style="color:var(--d)">Error: ${d.error.message}</span>`;return;}
     qTotalCount=d.count;
     const hasClient=$('qAbsentee').checked||$('qEntity').checked||$('qOutState').checked;
@@ -836,7 +844,7 @@ async function qFetchBatch(minOID, copts){
     f: 'pjson'
   });
   const r = await fetch(API+'?'+p, {signal:qAbc.signal});
-  const d = await r.json();
+  const d = await safeJSON(r);
   if(d.error) throw new Error(d.error.message);
   const feats = d.features || [];
   let maxOID = minOID;
@@ -884,7 +892,7 @@ window.qRun=async function(){
       returnCountOnly:'true', f:'pjson'
     });
     const cr=await fetch(API+'?'+cp,{signal:qAbc.signal});
-    const cd=await cr.json();
+    const cd=await safeJSON(cr);
     if(cd.error) throw new Error(cd.error.message);
     qTotalCount=cd.count||0;
     $('qStatus').innerHTML=`Found <span class="c">${qTotalCount.toLocaleString()}</span> server-side. Fetching first batch...`;
