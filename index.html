@@ -6,6 +6,7 @@
 <title>Nashville Parcel Explorer</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#090d14;--s1:#111827;--s2:#1a2332;--s3:#1f2b3d;--s4:#263040;--b1:#2a3544;--b2:#374151;--t:#e2e8f0;--td:#7a8ba0;--tx:#4a5568;--ac:#38bdf8;--ac2:#818cf8;--w:#fb923c;--d:#f87171;--g:#34d399;--y:#eab308;}
@@ -98,6 +99,20 @@ select option{color:var(--tx);}
 .tip-content .tip-sig{display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:10px;}
 .tip-content .tip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
 .tip-content .tip-note{margin-top:6px;font-size:9px;color:var(--tx);font-style:italic;}
+
+/* Rentals Heatmap */
+.hm-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--b1);}
+.hm-section .fg-label{margin-bottom:6px;}
+.hm-ctrl{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.hm-ctrl label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--td);flex:1;min-width:0;}
+.hm-ctrl input[type=range]{width:80px;accent-color:var(--ac);}
+.hm-ctrl .hm-val{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--ac);width:28px;text-align:right;}
+.hm-status{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--td);padding:4px 0;line-height:1.5;}
+.hm-status .c{color:var(--ac);font-weight:600;}
+.hm-status .w{color:var(--w);font-weight:600;}
+.hm-progress{height:2px;background:var(--b1);border-radius:1px;overflow:hidden;margin-top:4px;display:none;}
+.hm-progress.on{display:block;}
+.hm-progress-fill{height:100%;background:var(--w);transition:width .3s;width:0%;}
 
 .legend{position:absolute;bottom:10px;right:10px;z-index:1000;background:var(--s1);border:1px solid var(--b1);border-radius:6px;padding:6px 10px;max-height:180px;overflow-y:auto;}
 .leg-t{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;color:var(--tx);text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px;}
@@ -245,6 +260,16 @@ td.money.zero{color:var(--tx);}
         <div class="lyr" data-l="permits" onclick="togLyr(this)"><div class="lyr-sw" style="background:#22c55e"></div><span>Permits</span><div class="lyr-tog"></div></div>
         <div class="lyr" data-l="parks" onclick="togLyr(this)"><div class="lyr-sw" style="background:#34d399"></div><span>Parks</span><div class="lyr-tog"></div></div>
         <div class="lyr" data-l="historic" onclick="togLyr(this)"><div class="lyr-sw" style="background:#d97706"></div><span>Historic</span><div class="lyr-tog"></div></div>
+        <div style="height:12px"></div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--tx);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;">Analytics</div>
+        <div class="lyr" data-l="rentalheat" onclick="togHeatmap(this)"><div class="lyr-sw" style="background:var(--w)"></div><span>Rentals Heatmap</span><div class="lyr-tog" id="hmTog"></div></div>
+        <div id="hmSettings" style="display:none;padding:8px 0 0 14px;">
+          <div class="hm-ctrl"><label>Radius</label><input type="range" id="hmRadius" min="10" max="50" value="25" oninput="hmUpdateSettings()"><span class="hm-val" id="hmRadVal">25</span></div>
+          <div class="hm-ctrl"><label>Blur</label><input type="range" id="hmBlur" min="5" max="40" value="15" oninput="hmUpdateSettings()"><span class="hm-val" id="hmBlurVal">15</span></div>
+          <div class="hm-ctrl"><label>Max zoom</label><input type="range" id="hmMaxZoom" min="13" max="18" value="16" oninput="hmUpdateSettings()"><span class="hm-val" id="hmZoomVal">16</span></div>
+          <div class="hm-status" id="hmStatus">Toggle on to load city-wide rental data</div>
+          <div class="hm-progress" id="hmProgress"><div class="hm-progress-fill" id="hmProgressFill"></div></div>
+        </div>
       </div>
     </div>
     <div class="exp-map">
@@ -468,6 +493,7 @@ let qTotalCount=null, qRunning=false, qMaxOID=0;
 let qCols=[...TCOLS_DEF];
 let mapLayers={}, baseTile;
 let qMap=null, qMapLayer=null, qMapOpen=false;
+let hmOn=false, hmLayer=null, hmData=[], hmAbc=null, hmLoaded=false, hmLoading=false;
 
 const $=id=>document.getElementById(id);
 function gc(lu){if(!lu)return LUC.OTHER;const u=lu.toUpperCase();for(const[k,v]of Object.entries(LUC))if(u.includes(k))return v;return LUC.OTHER;}
@@ -505,6 +531,130 @@ function mkDynLayer(url,layers,op){
   return new D();
 }
 window.togLyr=function(el){const n=el.dataset.l,tog=el.querySelector('.lyr-tog'),on=tog.classList.toggle('on');el.classList.toggle('on',on);if(n==='parcels'){on?pLayer.addTo(map):map.removeLayer(pLayer);return;}if(on){const d=LYRDEFS[n];if(d){mapLayers[n]=mkDynLayer(d.url,d.layers,d.op);mapLayers[n].addTo(map);}}else{if(mapLayers[n]){map.removeLayer(mapLayers[n]);delete mapLayers[n];}}};
+
+/* ═══ RENTALS HEATMAP ═══ */
+const HM_FIELDS = ['OBJECTID','PropAddr','OwnAddr1','Owner','OwnState','DUCount','LUDesc'];
+
+window.togHeatmap=function(el){
+  hmOn=!hmOn;
+  const tog=el.querySelector('.lyr-tog');
+  tog.classList.toggle('on',hmOn);
+  el.classList.toggle('on',hmOn);
+  $('hmSettings').style.display=hmOn?'block':'none';
+  if(hmOn){
+    if(hmLoaded){
+      hmRender();
+    } else if(!hmLoading){
+      hmLoadCity();
+    }
+  } else {
+    if(hmLayer){map.removeLayer(hmLayer);hmLayer=null;}
+  }
+};
+
+window.hmUpdateSettings=function(){
+  $('hmRadVal').textContent=$('hmRadius').value;
+  $('hmBlurVal').textContent=$('hmBlur').value;
+  $('hmZoomVal').textContent=$('hmMaxZoom').value;
+  if(hmOn&&hmData.length)hmRender();
+};
+
+function hmRender(){
+  if(hmLayer){map.removeLayer(hmLayer);hmLayer=null;}
+  if(!hmData.length)return;
+  const pts=hmData.map(d=>[d[0],d[1],d[2]]);
+  hmLayer=L.heatLayer(pts,{
+    radius:+$('hmRadius').value,
+    blur:+$('hmBlur').value,
+    maxZoom:+$('hmMaxZoom').value,
+    max:4,
+    gradient:{0.1:'#1e3a5f',0.25:'#2563eb',0.4:'#f59e0b',0.6:'#f97316',0.8:'#ef4444',1.0:'#dc2626'}
+  }).addTo(map);
+}
+
+async function hmLoadCity(){
+  hmLoading=true;hmData=[];
+  $('hmStatus').innerHTML='<span class="w">Loading city-wide rental data...</span>';
+  $('hmProgress').classList.add('on');$('hmProgressFill').style.width='0%';
+  if(hmAbc)hmAbc.abort();hmAbc=new AbortController();
+
+  let maxOID=0, totalFetched=0, rentalCount=0;
+  const HM_BATCH=2000;
+
+  try{
+    // First get count of all properties
+    const cp=new URLSearchParams({where:'1=1',returnCountOnly:'true',f:'pjson'});
+    const cr=await fetch(API+'?'+cp,{signal:hmAbc.signal});
+    const cd=await cr.json();
+    const totalProps=cd.count||200000;
+
+    while(true){
+      const w=maxOID>0?`OBJECTID>${maxOID}`:'1=1';
+      const p=new URLSearchParams({
+        where:w,
+        outFields:HM_FIELDS.join(','),
+        outSR:'4326',
+        returnGeometry:'true',
+        returnCentroid:'true',
+        orderByFields:'OBJECTID ASC',
+        resultRecordCount:String(HM_BATCH),
+        f:'pjson'
+      });
+      const r=await fetch(API+'?'+p,{signal:hmAbc.signal});
+      const d=await r.json();
+      if(d.error)throw new Error(d.error.message);
+      const feats=d.features||[];
+      if(!feats.length)break;
+
+      feats.forEach(f=>{
+        const a=f.attributes;
+        const oid=a.OBJECTID||0;
+        if(oid>maxOID)maxOID=oid;
+
+        // Compute rental signals count
+        let sigs=0;
+        if(a.OwnAddr1&&a.PropAddr&&a.OwnAddr1.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,15)!==a.PropAddr.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,15))sigs++;
+        if(a.Owner&&ENT.test(a.Owner))sigs++;
+        if(a.OwnState&&a.OwnState.trim().toUpperCase()!=='TN')sigs++;
+        if(a.DUCount&&a.DUCount>1)sigs++;
+        if(sigs===0)return;
+
+        // Get centroid from geometry
+        const rings=f.geometry?.rings;
+        if(!rings||!rings[0]||!rings[0].length)return;
+        const ring=rings[0];
+        const lat=ring.reduce((s,c)=>s+c[1],0)/ring.length;
+        const lng=ring.reduce((s,c)=>s+c[0],0)/ring.length;
+        hmData.push([lat,lng,sigs]);
+        rentalCount++;
+      });
+
+      totalFetched+=feats.length;
+      const pct=Math.min(99,Math.round(totalFetched/totalProps*100));
+      $('hmProgressFill').style.width=pct+'%';
+      $('hmStatus').innerHTML=`Scanned <span class="c">${totalFetched.toLocaleString()}</span> parcels · <span class="w">${rentalCount.toLocaleString()}</span> rentals`;
+
+      // Progressively render every 10k parcels
+      if(hmOn&&totalFetched%10000<HM_BATCH)hmRender();
+
+      if(feats.length<HM_BATCH)break;
+    }
+
+    hmLoaded=true;hmLoading=false;
+    $('hmProgress').classList.remove('on');
+    $('hmStatus').innerHTML=`<span class="c">${rentalCount.toLocaleString()}</span> likely rentals across <span class="c">${totalFetched.toLocaleString()}</span> parcels`;
+    if(hmOn)hmRender();
+
+  }catch(e){
+    hmLoading=false;
+    $('hmProgress').classList.remove('on');
+    if(e.name!=='AbortError'){
+      $('hmStatus').innerHTML=`<span style="color:var(--d)">Error: ${e.message}</span> · <span class="c">${rentalCount.toLocaleString()}</span> rentals loaded`;
+      hmLoaded=hmData.length>0;
+      if(hmOn&&hmData.length)hmRender();
+    }
+  }
+}
 
 /* Explorer load (viewport) */
 async function eLoad_(){
