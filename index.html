@@ -493,7 +493,7 @@ let qTotalCount=null, qRunning=false, qMaxOID=0;
 let qCols=[...TCOLS_DEF];
 let mapLayers={}, baseTile;
 let qMap=null, qMapLayer=null, qMapOpen=false;
-let hmOn=false, hmLayer=null, hmData=[], hmAbc=null, hmLoaded=false, hmLoading=false;
+let hmOn=false, hmLayer=null, hmData=[], hmAbc=null, hmLoaded=false, hmLoading=false, hmAutoEnabled=false;
 
 const $=id=>document.getElementById(id);
 function gc(lu){if(!lu)return LUC.OTHER;const u=lu.toUpperCase();for(const[k,v]of Object.entries(LUC))if(u.includes(k))return v;return LUC.OTHER;}
@@ -524,7 +524,25 @@ baseTile=L.tileLayer(BASES.dark,{attribution:'&copy; CARTO',maxZoom:20}).addTo(m
 const pLayer=L.layerGroup().addTo(map);
 window.changeBase=function(k){map.removeLayer(baseTile);baseTile=L.tileLayer(BASES[k]||BASES.dark,{maxZoom:20}).addTo(map);baseTile.bringToBack();};
 window.expTab=function(el){document.querySelectorAll('.exp-tab').forEach(t=>t.classList.remove('on'));document.querySelectorAll('.exp-pane').forEach(p=>p.classList.remove('on'));el.classList.add('on');$(el.dataset.p).classList.add('on');};
-window.togRentals=function(){eRentalsOn=!eRentalsOn;$('eRentTog').classList.toggle('on',eRentalsOn);$('eRentTogRow').classList.toggle('on',eRentalsOn);eLoad_();};
+window.togRentals=function(){
+  eRentalsOn=!eRentalsOn;
+  $('eRentTog').classList.toggle('on',eRentalsOn);
+  $('eRentTogRow').classList.toggle('on',eRentalsOn);
+  if(eRentalsOn&&!hmOn){
+    hmAutoEnabled=true;hmOn=true;
+    const hmEl=document.querySelector('[data-l="rentalheat"]');
+    if(hmEl){hmEl.classList.add('on');hmEl.querySelector('.lyr-tog').classList.add('on');}
+    $('hmSettings').style.display='block';
+    if(hmLoaded)hmRender();else if(!hmLoading)hmLoadCity();
+  } else if(!eRentalsOn&&hmAutoEnabled){
+    hmAutoEnabled=false;hmOn=false;
+    if(hmLayer){map.removeLayer(hmLayer);hmLayer=null;}
+    const hmEl=document.querySelector('[data-l="rentalheat"]');
+    if(hmEl){hmEl.classList.remove('on');hmEl.querySelector('.lyr-tog').classList.remove('on');}
+    $('hmSettings').style.display='none';
+  }
+  eLoad_();
+};
 
 function mkDynLayer(url,layers,op){
   const D=L.Layer.extend({onAdd(m){this._map=m;this._img=L.DomUtil.create('img','',m.getPane('overlayPane'));this._img.style.cssText=`position:absolute;opacity:${op};pointer-events:none;`;m.on('moveend zoomend',this._upd,this);this._upd();},onRemove(m){m.off('moveend zoomend',this._upd,this);if(this._img.parentNode)this._img.parentNode.removeChild(this._img);},_upd(){const m=this._map,b=m.getBounds(),s=m.getSize();this._img.src=`${url}/export?bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}&bboxSR=4326&imageSR=4326&size=${s.x},${s.y}&format=png32&transparent=true&layers=${layers}&f=image`;const tl=m.latLngToLayerPoint(b.getNorthWest());L.DomUtil.setPosition(this._img,tl);this._img.style.width=s.x+'px';this._img.style.height=s.y+'px';}});
@@ -537,6 +555,7 @@ const HM_FIELDS = ['OBJECTID','PropAddr','OwnAddr1','Owner','OwnState','DUCount'
 
 window.togHeatmap=function(el){
   hmOn=!hmOn;
+  if(!hmOn) hmAutoEnabled=false;
   const tog=el.querySelector('.lyr-tog');
   tog.classList.toggle('on',hmOn);
   el.classList.toggle('on',hmOn);
@@ -659,7 +678,15 @@ async function hmLoadCity(){
 /* Explorer load (viewport) */
 async function eLoad_(){
   const z=map.getZoom();
-  if(z<MZ){pLayer.clearLayers();eData=[];aLU.clear();$('legend').style.display='none';$('mapStatus').innerHTML=`<span class="w">Zoom ${MZ}+</span> · z${z}`;$('zoomMsg').classList.add('on');$('hdrBadge').textContent='0';return;}
+  if(z<MZ){pLayer.clearLayers();eData=[];aLU.clear();$('legend').style.display='none';
+    if(eRentalsOn){
+      $('zoomMsg').classList.remove('on');
+      $('mapStatus').innerHTML=`<span class="c">Likely Rentals</span> · heatmap active · zoom ${MZ}+ for parcels`;
+    } else {
+      $('mapStatus').innerHTML=`<span class="w">Zoom ${MZ}+</span> · z${z}`;
+      $('zoomMsg').classList.add('on');
+    }
+    $('hdrBadge').textContent='0';return;}
   $('zoomMsg').classList.remove('on');
   if(eAbc)eAbc.abort();eAbc=new AbortController();
   $('loading').classList.add('on');$('mapStatus').textContent='Loading...';
@@ -692,7 +719,15 @@ async function eLoad_(){
   $('loading').classList.remove('on');
 }
 window.eLoad=eLoad_;
-window.eClear=function(){$('eLU').value='';$('eOwner').value='';eRentalsOn=false;$('eRentTog').classList.remove('on');$('eRentTogRow').classList.remove('on');$('eValMin').value='';$('eValMax').value='';eLoad_();};
+window.eClear=function(){$('eLU').value='';$('eOwner').value='';
+  if(eRentalsOn&&hmAutoEnabled){
+    hmAutoEnabled=false;hmOn=false;
+    if(hmLayer){map.removeLayer(hmLayer);hmLayer=null;}
+    const hmEl=document.querySelector('[data-l="rentalheat"]');
+    if(hmEl){hmEl.classList.remove('on');hmEl.querySelector('.lyr-tog').classList.remove('on');}
+    $('hmSettings').style.display='none';
+  }
+  eRentalsOn=false;$('eRentTog').classList.remove('on');$('eRentTogRow').classList.remove('on');$('eValMin').value='';$('eValMax').value='';eLoad_();};
 function dLoad(){clearTimeout(deb);deb=setTimeout(eLoad_,400);}
 map.on('moveend',dLoad);map.on('zoomend',dLoad);
 
