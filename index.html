@@ -276,7 +276,7 @@ td.money.zero{color:var(--tx);}
       <div id="map"></div>
       <div class="map-overlay map-status" id="mapStatus">Zoom in to load parcels</div>
       <div class="map-overlay loading-ind" id="loading"><div class="sp"></div><span>Loading...</span></div>
-      <div class="map-overlay zoom-msg" id="zoomMsg">⚠ Zoom to 15+ to load parcels</div>
+      <div class="map-overlay zoom-msg" id="zoomMsg">⚠ Outside Davidson County</div>
       <div class="legend" id="legend" style="display:none"><div class="leg-t">Land Use</div><div id="legItems"></div></div>
     </div>
   </div>
@@ -357,7 +357,7 @@ const ENT=/\b(LLC|LP|INC|CORP|TRUST|LTD|PROPERTIES|PARTNERS|HOLDINGS|INVESTMENT|
 const ALL_F=['OBJECTID','APN','STANPAR','PropAddr','PropHouse','PropStreet','PropSuite','PropCity','PropState','PropZip','Owner','OwnDate','OwnInstr','SaleCode','SaleSrc','ValidSale','SalePrice','OwnAddr1','OwnAddr2','OwnAddr3','OwnCity','OwnState','OwnCountry','OwnZip','LUCode','LUDesc','DUCount','LandAppr','ImprAppr','TotlAppr','LandAssd','ImprAssd','TotlAssd','AssessDate','Acres','DeededAcreage','StatedArea','FinishArea','FirstFloor','Front','Side','IsRegular','Council','TaxDist','Tract','NHID','AssessZone','IsExempt','GovType','LegalDesc','FeatureType','ParType','FloorOrder','UnitID','PropFraction','EqualizedCode'];
 const TCOLS_DEF=['PropAddr','Owner','LUDesc','DUCount','TotlAppr','SalePrice','OwnCity','OwnState','Council','Acres','Signals'];
 const API='https://maps.nashville.gov/arcgis/rest/services/Cadastral/Cadastral_Layers/MapServer/4/query';
-const MZ=15, BATCH=2000;
+const BATCH=2000, E_MAX=20000, CELL_DEG=0.015, MAX_CELLS=200;
 
 /* Safely parse JSON from ArcGIS responses that may contain unescaped control characters */
 async function safeJSON(resp){
@@ -369,6 +369,25 @@ async function safeJSON(resp){
 
 // Davidson County bounding box — covers all of Nashville-Davidson
 const COUNTY_ENV = '-87.06,35.94,-86.50,36.42';
+const COUNTY_BBOX={w:-87.06,s:35.94,e:-86.50,n:36.42};
+
+/* Build a grid of cells over the viewport (clipped to county), sorted center-out */
+function buildCells(bounds,center){
+  const w=Math.max(bounds.getWest(),COUNTY_BBOX.w),s=Math.max(bounds.getSouth(),COUNTY_BBOX.s);
+  const e=Math.min(bounds.getEast(),COUNTY_BBOX.e),n=Math.min(bounds.getNorth(),COUNTY_BBOX.n);
+  if(e<=w||n<=s)return[];
+  const width=e-w,height=n-s;
+  let cols=Math.max(1,Math.ceil(width/CELL_DEG)),rows=Math.max(1,Math.ceil(height/CELL_DEG));
+  if(cols*rows>MAX_CELLS){const sc=Math.sqrt(cols*rows/MAX_CELLS);cols=Math.max(1,Math.round(cols/sc));rows=Math.max(1,Math.round(rows/sc));}
+  const cw=width/cols,ch=height/rows,cells=[];
+  for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+    const x0=w+c*cw,y0=s+r*ch,x1=x0+cw,y1=y0+ch;
+    const dist=Math.hypot((x0+x1)/2-center.lng,(y0+y1)/2-center.lat);
+    cells.push({env:`${x0},${y0},${x1},${y1}`,dist});
+  }
+  cells.sort((a,b)=>a.dist-b.dist);
+  return cells;
+}
 
 /* ── Land Use Groups (compound queries) vs Exact values ── */
 const LU_GROUPS = {
@@ -683,45 +702,61 @@ async function hmLoadCity(){
   }
 }
 
-/* Explorer load (viewport) */
+/* Explorer load (viewport - iterative from center outward) */
 async function eLoad_(){
   const z=map.getZoom();
-  if(z<MZ){pLayer.clearLayers();eData=[];aLU.clear();$('legend').style.display='none';
-    if(eRentalsOn){
-      $('zoomMsg').classList.remove('on');
-      $('mapStatus').innerHTML=`<span class="c">Likely Rentals</span> · heatmap active · zoom ${MZ}+ for parcels`;
-    } else {
-      $('mapStatus').innerHTML=`<span class="w">Zoom ${MZ}+</span> · z${z}`;
-      $('zoomMsg').classList.add('on');
-    }
-    $('hdrBadge').textContent='0';return;}
   $('zoomMsg').classList.remove('on');
   if(eAbc)eAbc.abort();eAbc=new AbortController();
+  pLayer.clearLayers();eData=[];aLU.clear();$('legend').style.display='none';
   $('loading').classList.add('on');$('mapStatus').textContent='Loading...';
-  const b=map.getBounds(),env=`${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}`;
+  const bounds=map.getBounds(),center=map.getCenter();
   const conds=[];
   const luW=luWhere($('eLU').value);if(luW)conds.push(luW);
   if($('eOwner').value.trim())conds.push(`Owner LIKE '%${$('eOwner').value.trim().toUpperCase().replace(/'/g,"''")}%'`);
   const vmin=$('eValMin').value,vmax=$('eValMax').value;
   if(vmin)conds.push(`TotlAppr>=${vmin}`);if(vmax)conds.push(`TotlAppr<=${vmax}`);
   const where=conds.length?conds.join(' AND '):'1=1';
-  const p=new URLSearchParams({where,geometry:env,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:ALL_F.join(','),outSR:'4326',returnGeometry:'true',resultRecordCount:String(BATCH),f:'pjson'});
+  const cells=buildCells(bounds,center);
+  if(!cells.length){
+    $('mapStatus').innerHTML=`<span class="w">Outside Davidson County</span> · z${z}`;
+    $('hdrBadge').textContent='0 parcels';$('loading').classList.remove('on');return;
+  }
+  const seen=new Set();let truncated=false;
+  const useDots=z<15;
   try{
-    const r=await fetch(API+'?'+p,{signal:eAbc.signal});const d=await safeJSON(r);
-    if(d.error){$('mapStatus').innerHTML=`<span style="color:var(--d)">API: ${d.error.message}</span>`;$('loading').classList.remove('on');return;}
-    pLayer.clearLayers();eData=[];aLU.clear();
-    (d.features||[]).forEach(f=>{
-      const a=f.attributes,rings=f.geometry?.rings;if(!rings)return;
-      const sg=mkSigs(a);
-      if(eRentalsOn&&sg.length===0)return;
-      const lu=a.LUDesc||'Unknown';aLU.add(lu);
-      eData.push({...a,_sigs:sg,Signals:sg.join(', ')});
-      const ll=rings.map(r=>r.map(c=>[c[1],c[0]]));const col=gc(lu);
-      L.polygon(ll,{color:col,weight:1.2,opacity:.8,fillColor:col,fillOpacity:sg.length?.5:.25}).bindPopup(()=>popup(a,sg,col,lu),{maxWidth:400}).addTo(pLayer);
-    });
+    for(let i=0;i<cells.length;i++){
+      if(eAbc.signal.aborted)break;
+      if(eData.length>=E_MAX){truncated=true;break;}
+      if(i>0)await new Promise(ok=>setTimeout(ok,30));
+      if(eAbc.signal.aborted)break;
+      const p=new URLSearchParams({where,geometry:cells[i].env,geometryType:'esriGeometryEnvelope',inSR:'4326',spatialRel:'esriSpatialRelIntersects',outFields:ALL_F.join(','),outSR:'4326',returnGeometry:'true',resultRecordCount:String(BATCH),f:'pjson'});
+      const r=await fetch(API+'?'+p,{signal:eAbc.signal});
+      const d=await safeJSON(r);
+      if(d.error)continue;
+      (d.features||[]).forEach(f=>{
+        const a=f.attributes,rings=f.geometry?.rings;if(!rings||!rings[0])return;
+        if(seen.has(a.OBJECTID))return;seen.add(a.OBJECTID);
+        const sg=mkSigs(a);
+        if(eRentalsOn&&sg.length===0)return;
+        const lu=a.LUDesc||'Unknown';aLU.add(lu);
+        eData.push({...a,_sigs:sg,Signals:sg.join(', ')});
+        const col=gc(lu);
+        if(useDots){
+          const ring=rings[0],lat=ring.reduce((s,c)=>s+c[1],0)/ring.length,lng=ring.reduce((s,c)=>s+c[0],0)/ring.length;
+          L.circleMarker([lat,lng],{radius:3,color:col,fillColor:col,fillOpacity:sg.length?.7:.4,weight:0}).bindPopup(()=>popup(a,sg,col,lu),{maxWidth:400}).addTo(pLayer);
+        }else{
+          const ll=rings.map(r=>r.map(c=>[c[1],c[0]]));
+          L.polygon(ll,{color:col,weight:1.2,opacity:.8,fillColor:col,fillOpacity:sg.length?.5:.25}).bindPopup(()=>popup(a,sg,col,lu),{maxWidth:400}).addTo(pLayer);
+        }
+      });
+      const pct=Math.round((i+1)/cells.length*100);
+      const rc=eData.filter(r=>r._sigs.length).length;
+      $('mapStatus').innerHTML=`<span class="c">${eData.length}</span> parcels · ${pct}%`+(rc?` · <span class="c">${rc}</span> rentals`:'')+` · z${z}`;
+      if(mode==='explorer')$('hdrBadge').textContent=eData.length+' parcels';
+    }
     buildLeg();
-    const tr=(d.features||[]).length>=BATCH;const rc=eData.filter(r=>r._sigs.length).length;
-    $('mapStatus').innerHTML=`<span class="c">${eData.length}</span> parcels`+(tr?' <span class="w">(cap)</span>':'')+(rc?` · <span class="c">${rc}</span> rental signals`:'')+` · z${z}`;
+    const rc=eData.filter(r=>r._sigs.length).length;
+    $('mapStatus').innerHTML=`<span class="c">${eData.length}</span> parcels`+(truncated?' <span class="w">(limit)</span>':'')+(rc?` · <span class="c">${rc}</span> rental signals`:'')+` · z${z}`;
     if(mode==='explorer')$('hdrBadge').textContent=eData.length+' parcels';
   }catch(e){if(e.name!=='AbortError')$('mapStatus').innerHTML=`<span style="color:var(--d)">${e.message}</span>`;}
   $('loading').classList.remove('on');
